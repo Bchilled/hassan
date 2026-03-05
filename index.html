@@ -15,44 +15,37 @@ canvas{width:min(96vw,960px);aspect-ratio:16/10;border:2px solid #4762dd;border-
 </head>
 <body>
 <div id="hud">
-  <b>401 DASH — Mavis/401 → Rutherford/400</b>
+  <b>401 DASH</b>
   <div style="display:flex;gap:6px;flex-wrap:wrap">
     <span class="p" id="hPos">1st</span>
     <span class="p" id="hSpd">0 km/h</span>
-    <span class="p" id="hNext">Next: Mavis/401</span>
+    <span class="p" id="hNext">Mavis/401</span>
+    <span class="p" id="hAmmo">🔫 5</span>
     <span class="p" id="hTime">0.0s</span>
     <span class="p" id="hPen">+0.0s</span>
   </div>
 </div>
 <canvas id="c" width="960" height="600"></canvas>
-<div id="hint">A/D or ←/→ steer · W/↑ gas · S/↓ brake · M mute · R restart · Click or Enter to start</div>
+<div id="hint">A/D steer · W gas · S brake · SPACE shoot · M mute · R restart · Enter/click to start</div>
 
 <script>
 'use strict';
 const C=document.getElementById('c'),g=C.getContext('2d');
 const W=960,H=600;
 
-/* ─── TRACK ────────────────────────────────────────────────────
-   Real route: 401E (Mavis → Hurontario → Dixie → 410) then
-   hard right onto 400N ramp → north to Rutherford.
-   World: +x = east, +y = south (screen down).
-   car.angle 0 = east, PI/2 = south, -PI/2 = north.
-──────────────────────────────────────────────────────────────── */
-const ROAD_W = 120; // half-width of road
-
-const WP = [
-  { x: 250,  y: 1350, name:'START — Mavis/401',     exit:true  },
-  { x: 950,  y: 1350, name:'Hurontario St',          exit:true  },
-  { x: 1680, y: 1350, name:'Dixie Rd',               exit:true  },
-  { x: 2380, y: 1350, name:'Hwy 410',                exit:true  },
-  { x: 2900, y: 1200, name:'401/400 Split →',        exit:false },
-  { x: 3150, y: 900,  name:'400N On-Ramp',           exit:false },
-  { x: 3250, y: 550,  name:'Major Mackenzie Dr',     exit:true  },
-  { x: 3250, y: 230,  name:'Langstaff Rd',           exit:true  },
-  { x: 3250, y:-100,  name:'⚑ RUTHERFORD — FINISH', exit:true  },
+/* ─── TRACK ──────────────────────────────────────────────────── */
+const ROAD_W=200; // half-width — gives ~4 lanes worth of room
+const WP=[
+  {x:250, y:1400, name:'START — Mavis/401',    exit:true},
+  {x:980, y:1400, name:'Hurontario St',         exit:true},
+  {x:1720,y:1400, name:'Dixie Rd',              exit:true},
+  {x:2460,y:1400, name:'Hwy 410',               exit:true},
+  {x:2980,y:1220, name:'401/400 Split →',       exit:false},
+  {x:3240,y:860,  name:'400N On-Ramp',          exit:false},
+  {x:3340,y:500,  name:'Major Mackenzie Dr',    exit:true},
+  {x:3340,y:160,  name:'Langstaff Rd',          exit:true},
+  {x:3340,y:-200, name:'⚑ RUTHERFORD — FINISH',exit:true},
 ];
-
-function segLen(i){ const a=WP[i],b=WP[i+1]; return Math.hypot(b.x-a.x,b.y-a.y); }
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function hyp(a,b){return Math.hypot(b.x-a.x,b.y-a.y);}
 function normA(a){while(a>Math.PI)a-=Math.PI*2;while(a<-Math.PI)a+=Math.PI*2;return a;}
@@ -67,58 +60,26 @@ function tone(f,d,v=0.04,t='square'){
   ga.gain.exponentialRampToValueAtTime(0.0001,n+d);
   o.connect(ga);ga.connect(AC.destination);o.start(n);o.stop(n+d+.02);
 }
-function sfxCrash(){tone(90,.22,.07,'sawtooth');}
-function sfxCheck(){tone(880,.07,.05,'triangle');setTimeout(()=>tone(1100,.11,.05,'triangle'),90);}
+function sfxCrash(){tone(90,.2,.07,'sawtooth');}
+function sfxCheck(){tone(880,.07,.05,'triangle');setTimeout(()=>tone(1100,.1,.05,'triangle'),90);}
+function sfxShoot(){tone(440,.04,.04,'square');setTimeout(()=>tone(880,.03,.03,'square'),40);}
+function sfxKill(){tone(220,.15,.06,'sawtooth');setTimeout(()=>tone(160,.12,.05,'sawtooth'),80);}
 function sfxWin(){[660,880,1100,1320].forEach((f,i)=>setTimeout(()=>tone(f,.14,.05,'triangle'),i*100));}
 function sfxLose(){[440,330,220].forEach((f,i)=>setTimeout(()=>tone(f,.2,.05,'sawtooth'),i*120));}
-let engineTick=0;
-function sfxEngine(speed){if(engineTick++%22===0)tone(75+speed*18,.07,.012,'sawtooth');}
+let eTick=0;
+function sfxEngine(spd){if(eTick++%18===0)tone(75+spd*20,.06,.011,'sawtooth');}
 
 /* ─── STICKERS ───────────────────────────────────────────────── */
-const STICKERS=['ੴ','ਵਾਹਿਗੁਰੂ','ਖਾਲਸਾ','BRAMPTON','DJ VIBE','ਸਤਿ ਸ੍ਰੀ','🏏','PUNJABI PRIDE','ਯੋਧਾ'];
-const TCAR_COLORS=['#ef4444','#f97316','#8b5cf6','#14b8a6','#64748b','#e11d48','#0891b2'];
+const STICKERS=['ੴ','ਵਾਹਿਗੁਰੂ','ਖਾਲਸਾ','BRAMPTON','DJ VIBE','ਸਤਿ ਸ੍ਰੀ','🏏','PUNJABI','ਯੋਧਾ','NO FEAR'];
+const TCOLORS=['#ef4444','#f97316','#8b5cf6','#14b8a6','#64748b','#e11d48','#0891b2','#84cc16'];
 
-/* ─── MAKE CAR ────────────────────────────────────────────────── */
-function makeCar(x,y,angle,color,name,isAI){
-  return{x,y,angle,vx:0,vy:0,speed:0,maxSpd:isAI?4.5:5.8,acc:0.09,drag:0.96,
-         color,name,stun:0,wpIdx:0,pen:0,finished:false,isAI,
-         sticker:null,w:22,h:40};
-}
-
-/* ─── TRAFFIC ────────────────────────────────────────────────── */
-function makeTraffic(wpIdx,side){
-  const i=Math.min(wpIdx,WP.length-2);
-  const a=WP[i],b=WP[i+1];
-  const ang=Math.atan2(b.y-a.y,b.x-a.x);
-  const px=a.x+Math.sin(ang)*side, py=a.y-Math.cos(ang)*side;
-  const c=TCAR_COLORS[Math.floor(Math.random()*TCAR_COLORS.length)];
-  const s=Math.random()<0.6?STICKERS[Math.floor(Math.random()*STICKERS.length)]:null;
-  return{x:px,y:py,angle:ang,speed:1.2+Math.random()*.8,wpIdx:i,
-         color:c,sticker:s,w:20,h:36,stun:0,finished:false,active:true,isAI:true,name:'',pen:0};
-}
-
-/* ─── STATE ──────────────────────────────────────────────────── */
-let hassan,scott,traffic=[],frame=0,started=false,ended=false,winner='';
-const keys={};
-let cpFlash={text:'',alpha:0},lastCp=-1;
-
-function reset(){
-  hassan=makeCar(WP[0].x,WP[0].y+30,0,'#22c55e','Hassan',false);
-  scott =makeCar(WP[0].x,WP[0].y-30,0,'#3b82f6','Scott AI',true);
-  // spawn traffic across the route
-  traffic=[];
-  const spawns=[[1,40],[1,-45],[2,35],[2,-50],[3,40],[3,-35],[4,25],[4,-45],[5,35],[5,-30],[6,20],[6,-40],[7,30]];
-  for(const[wi,so]of spawns)traffic.push(makeTraffic(wi,so));
-  frame=0;started=false;ended=false;winner='';cpFlash={text:'',alpha:0};lastCp=-1;
-}
-
-/* ─── ON-ROAD TEST ────────────────────────────────────────────── */
+/* ─── ON-ROAD ────────────────────────────────────────────────── */
 function onRoad(px,py){
   for(let i=0;i<WP.length-1;i++){
-    const a=WP[i],b=WP[i+1],len2=(b.x-a.x)**2+(b.y-a.y)**2;
+    const a=WP[i],b=WP[i+1],dx=b.x-a.x,dy=b.y-a.y,len2=dx*dx+dy*dy;
     if(len2===0)continue;
-    const t=clamp(((px-a.x)*(b.x-a.x)+(py-a.y)*(b.y-a.y))/len2,0,1);
-    if(Math.hypot(px-a.x-t*(b.x-a.x),py-a.y-t*(b.y-a.y))<ROAD_W+8)return true;
+    const t=clamp(((px-a.x)*dx+(py-a.y)*dy)/len2,0,1);
+    if(Math.hypot(px-a.x-t*dx,py-a.y-t*dy)<ROAD_W+10)return true;
   }
   return false;
 }
@@ -129,19 +90,55 @@ function aimAt(car,tx,ty,rate){
   car.angle+=clamp(normA(target-car.angle),-rate,rate);
 }
 
-/* ─── MOVE CAR ───────────────────────────────────────────────── */
+/* ─── STATE ──────────────────────────────────────────────────── */
+let hassan,scott,traffic,bullets,frame,started,ended,winner,ammo,shootCd;
+const keys={};
+let cpFlash={text:'',alpha:0},lastCp=-1,explosions=[];
+
+function makeCar(x,y,ang,color,name,maxSpd,isAI){
+  return{x,y,angle:ang,speed:0,maxSpd,acc:0.10,drag:0.965,color,name,
+         stun:0,wpIdx:0,pen:0,finished:false,isAI,w:22,h:40,alive:true};
+}
+
+function makeTraffic(wpI,side){
+  const i=Math.min(wpI,WP.length-2);
+  const a=WP[i],b=WP[i+1],ang=Math.atan2(b.y-a.y,b.x-a.x);
+  const sticker=Math.random()<0.6?STICKERS[Math.floor(Math.random()*STICKERS.length)]:null;
+  return{x:a.x+Math.sin(ang)*side,y:a.y-Math.cos(ang)*side,
+         angle:ang,speed:1.1+Math.random()*.9,
+         color:TCOLORS[Math.floor(Math.random()*TCOLORS.length)],
+         sticker,wpIdx:i,w:20,h:36,alive:true,isAI:true,stun:0,name:'',pen:0,finished:false};
+}
+
+function explode(x,y){
+  for(let i=0;i<20;i++)explosions.push({x,y,vx:(Math.random()-0.5)*7,vy:(Math.random()-0.5)*7,life:35,maxLife:35,color:['#fbbf24','#f97316','#ef4444','#fff'][(Math.random()*4)|0]});}
+
+function reset(){
+  hassan=makeCar(WP[0].x,WP[0].y+40,0,'#22c55e','Hassan',6.0,false);
+  scott =makeCar(WP[0].x,WP[0].y-40,0,'#3b82f6','Scott AI',5.2,true);
+  traffic=[];
+  const sp=[
+    [1,60],[1,-60],[1,120],[2,55],[2,-55],[2,100],[2,-110],
+    [3,65],[3,-65],[3,115],[4,55],[4,-55],[4,105],
+    [5,50],[5,-50],[6,60],[6,-60],[6,110],[7,50],[7,-50],[7,100],
+    [0,80],[0,-80],[3,-120],[4,-120],[5,110]
+  ];
+  for(const[wi,so]of sp)traffic.push(makeTraffic(wi,so));
+  bullets=[]; explosions=[];
+  frame=0;started=false;ended=false;winner='';lastCp=-1;ammo=5;shootCd=0;
+  cpFlash={text:'',alpha:0};
+}
+
+/* ─── MOVE ───────────────────────────────────────────────────── */
 function moveCar(car){
   car.x+=Math.cos(car.angle)*car.speed;
   car.y+=Math.sin(car.angle)*car.speed;
-  if(!onRoad(car.x,car.y))car.speed*=0.91;
+  if(!onRoad(car.x,car.y))car.speed*=0.90;
   car.speed*=car.drag;
 }
-
-/* ─── ADVANCE WAYPOINTS ──────────────────────────────────────── */
-function advanceWp(car){
-  if(car.wpIdx>=WP.length-1){car.finished=true;return;}
-  const target=WP[Math.min(car.wpIdx,WP.length-1)];
-  if(hyp(car,target)<70)car.wpIdx++;
+function advWp(car){
+  if(car.wpIdx>=WP.length-1)return;
+  if(hyp(car,WP[car.wpIdx])<80)car.wpIdx=Math.min(car.wpIdx+1,WP.length-1);
 }
 
 /* ─── UPDATE ─────────────────────────────────────────────────── */
@@ -149,113 +146,139 @@ function update(){
   if(!started||ended)return;
   frame++;
 
-  // ── Hassan input ──
-  if(hassan.stun>0){hassan.stun--;hassan.speed*=0.96;}
+  // Player
+  if(hassan.stun>0){hassan.stun--;hassan.speed*=0.97;}
   else{
     if(keys.ArrowUp  ||keys.KeyW) hassan.speed=Math.min(hassan.speed+hassan.acc,hassan.maxSpd);
-    else                           hassan.speed=Math.max(0,hassan.speed-hassan.acc*.3);
-    if(keys.ArrowDown||keys.KeyS) hassan.speed=Math.max(0,hassan.speed-hassan.acc*1.1);
-    const tr=0.04*clamp(hassan.speed/2.5,.2,1);
+    else                           hassan.speed=Math.max(0,hassan.speed-hassan.acc*.28);
+    if(keys.ArrowDown||keys.KeyS) hassan.speed=Math.max(0,hassan.speed-hassan.acc*1.2);
+    const tr=0.042*clamp(hassan.speed/2.8,.25,1);
     if(keys.ArrowLeft ||keys.KeyA) hassan.angle-=tr;
     if(keys.ArrowRight||keys.KeyD) hassan.angle+=tr;
   }
-  moveCar(hassan);
-  advanceWp(hassan);
-  if(started)sfxEngine(hassan.speed/hassan.maxSpd);
+  moveCar(hassan);advWp(hassan);
+  sfxEngine(hassan.speed/hassan.maxSpd);
 
-  // ── Scott AI ──
-  const swp=WP[Math.min(scott.wpIdx,WP.length-1)];
-  aimAt(scott,swp.x,swp.y,0.05);
-  scott.speed=Math.min(scott.speed+.04,scott.maxSpd);
-  moveCar(scott);
-  advanceWp(scott);
-
-  // ── Traffic ──
-  for(const t of traffic){
-    if(!t.active)continue;
-    const twp=WP[Math.min(t.wpIdx,WP.length-1)];
-    aimAt(t,twp.x,twp.y,.07);
-    t.speed=clamp(t.speed+.01,0,2.4);
-    moveCar(t);
-    if(hyp(t,twp)<50&&t.wpIdx<WP.length-1)t.wpIdx++;
+  // Shoot
+  if(shootCd>0)shootCd--;
+  if(keys.Space&&shootCd===0&&ammo>0){
+    ammo--;shootCd=22;sfxShoot();
+    const spd=16;
+    bullets.push({x:hassan.x,y:hassan.y,vx:Math.cos(hassan.angle)*spd,vy:Math.sin(hassan.angle)*spd,life:90});
+    document.getElementById('hAmmo').textContent=`🔫 ${ammo}`;
   }
+  // Ammo regen: 1 bullet every 5 seconds
+  if(frame%300===0&&ammo<8){ammo++;document.getElementById('hAmmo').textContent=`🔫 ${ammo}`;}
 
-  // ── Checkpoint (Hassan) ──
-  const cwp=WP[Math.min(hassan.wpIdx,WP.length-1)];
-  if(hassan.wpIdx!==lastCp&&hyp(hassan,cwp)<90){
-    lastCp=hassan.wpIdx;
-    cpFlash={text:cwp.name,alpha:1.0};
-    sfxCheck();
-  }
-
-  // ── Collisions ──
-  function hitHassan(other){
-    if(hyp(hassan,other)<30&&hassan.stun===0){
-      hassan.pen+=1.8;hassan.speed=Math.max(0,hassan.speed-2.2);hassan.stun=55;
-      if(other.active!==undefined)other.active=false;
-      sfxCrash();
+  // Bullets
+  bullets=bullets.filter(b=>b.life>0);
+  for(const b of bullets){
+    b.x+=b.vx;b.y+=b.vy;b.life--;
+    // Hit traffic
+    for(const t of traffic){
+      if(!t.alive)continue;
+      if(hyp(b,t)<24){b.life=0;t.alive=false;explode(t.x,t.y);sfxKill();}
+    }
+    // Hit Scott
+    if(scott.alive&&hyp(b,scott)<26){
+      b.life=0;scott.speed=Math.max(0,scott.speed-3);scott.stun=80;
+      explode(scott.x,scott.y);tone(300,.15,.05,'sawtooth');
     }
   }
-  for(const t of traffic)if(t.active)hitHassan(t);
-  hitHassan(scott);
 
-  // ── Finish ──
+  // Scott AI
+  if(scott.alive){
+    if(scott.stun>0){scott.stun--;scott.speed*=0.97;}
+    else{
+      const swp=WP[Math.min(scott.wpIdx,WP.length-1)];
+      aimAt(scott,swp.x,swp.y,0.052);
+      scott.speed=Math.min(scott.speed+.05,scott.maxSpd);
+    }
+    moveCar(scott);advWp(scott);
+  }
+
+  // Traffic AI
+  for(const t of traffic){
+    if(!t.alive)continue;
+    const twp=WP[Math.min(t.wpIdx,WP.length-1)];
+    aimAt(t,twp.x,twp.y,.07);
+    t.speed=clamp(t.speed+.02,0,2.6);
+    moveCar(t);
+    if(hyp(t,twp)<55&&t.wpIdx<WP.length-1)t.wpIdx++;
+  }
+
+  // Checkpoint
+  const cwp=WP[Math.min(hassan.wpIdx,WP.length-1)];
+  if(hassan.wpIdx!==lastCp&&hyp(hassan,cwp)<100){
+    lastCp=hassan.wpIdx;cpFlash={text:cwp.name,alpha:1.0};sfxCheck();
+  }
+
+  // Collisions (Hassan ↔ traffic/scott)
+  function hitH(other){
+    if(!other.alive&&other.stun===undefined)return;
+    if(other.alive===false)return;
+    if(hyp(hassan,other)<32&&hassan.stun===0){
+      hassan.pen+=1.8;hassan.speed=Math.max(0,hassan.speed-2.5);
+      hassan.stun=55;sfxCrash();
+    }
+  }
+  for(const t of traffic)hitH(t);
+  hitH(scott);
+
+  // Explosions
+  explosions=explosions.filter(e=>e.life>0);
+  for(const e of explosions){e.x+=e.vx;e.y+=e.vy;e.vy+=.08;e.life--;}
+
+  // FINISH — check proximity to last waypoint
   const fin=WP[WP.length-1];
-  if(!hassan.finished&&hyp(hassan,fin)<90&&hassan.wpIdx>=WP.length-1)hassan.finished=true;
+  if(!hassan.finished&&hyp(hassan,fin)<120&&hassan.wpIdx>=WP.length-2)hassan.finished=true;
+  if(scott.alive&&!scott.finished&&hyp(scott,fin)<120&&scott.wpIdx>=WP.length-2)scott.finished=true;
   if(hassan.finished||scott.finished){
     ended=true;
-    winner=hassan.finished&&!scott.finished?'Hassan 🏆':
-           scott.finished&&!hassan.finished?'Scott AI 🤖':
-           (frame/60+hassan.pen<=frame/60?'Hassan 🏆':'Scott AI 🤖');
+    if(hassan.finished&&!scott.finished)winner='Hassan 🏆';
+    else if(scott.finished&&!hassan.finished)winner='Scott AI 🤖';
+    else winner=(frame/60+hassan.pen)<=(frame/60)?'Hassan 🏆':'Scott AI 🤖';
     if(winner.includes('Hassan'))sfxWin();else sfxLose();
   }
 
-  // Fade
-  if(cpFlash.alpha>0)cpFlash.alpha-=.012;
+  if(cpFlash.alpha>0)cpFlash.alpha-=.01;
 
   // HUD
   document.getElementById('hPos').textContent=hassan.wpIdx>=scott.wpIdx?'1st 🥇':'2nd 🥈';
   document.getElementById('hSpd').textContent=`${Math.round(hassan.speed*28)} km/h`;
-  document.getElementById('hNext').textContent=`Next: ${WP[Math.min(hassan.wpIdx,WP.length-1)].name}`;
+  document.getElementById('hNext').textContent=WP[Math.min(hassan.wpIdx,WP.length-1)].name;
   document.getElementById('hTime').textContent=`${(frame/60).toFixed(1)}s`;
   document.getElementById('hPen').textContent=`+${hassan.pen.toFixed(1)}s`;
 }
 
-/* ─── DRAW CAR SHAPE ─────────────────────────────────────────── */
-function drawCarShape(x,y,angle,color,name,sticker,w,h,isHassan){
-  g.save();
-  g.translate(x,y);
-  g.rotate(angle+Math.PI/2); // +PI/2 so angle=0(east) → car nose points east
-  // Body
-  if(isHassan){g.shadowColor='#22c55e';g.shadowBlur=16;}
+/* ─── DRAW CAR ───────────────────────────────────────────────── */
+function drawCar(car,isH){
+  if(!car.alive&&!isH)return;
+  const{x,y,angle,color,name,w,h,stun}=car;
+  g.save();g.translate(x,y);g.rotate(angle+Math.PI/2);
+  if(isH){g.shadowColor='#22c55e';g.shadowBlur=18;}
   g.fillStyle=color;g.fillRect(-w/2,-h/2,w,h);
   g.shadowBlur=0;
-  // Windshield
-  g.fillStyle='rgba(0,0,0,.7)';g.fillRect(-w/2+3,-h/2+3,w-6,h*.28);
-  g.fillStyle='rgba(100,160,255,.18)';g.fillRect(-w/2+4,-h/2+4,w-8,h*.22);
-  // Rear lights
-  g.fillStyle='#ff2200';g.fillRect(-w/2+2,h/2-7,w/2-3,5);g.fillRect(2,h/2-7,w/2-3,5);
-  // Headlights
+  // windshield
+  g.fillStyle='rgba(0,0,0,.72)';g.fillRect(-w/2+3,-h/2+3,w-6,h*.28);
+  g.fillStyle='rgba(120,180,255,.18)';g.fillRect(-w/2+4,-h/2+4,w-8,h*.22);
+  // rear lights
+  g.fillStyle=stun>0?'#ff4400':'#ff2200';
+  g.fillRect(-w/2+2,h/2-7,w/2-3,5);g.fillRect(2,h/2-7,w/2-3,5);
+  // headlights
   g.fillStyle='#fffac0';g.fillRect(-w/2+2,-h/2+2,6,4);g.fillRect(w/2-8,-h/2+2,6,4);
-  // Wheels
+  // wheels
   g.fillStyle='#111';
-  g.fillRect(-w/2-4,-h/2+4,5,10);g.fillRect(w/2-1,-h/2+4,5,10);
-  g.fillRect(-w/2-4,h/2-14,5,10);g.fillRect(w/2-1,h/2-14,5,10);
-  // Plate
-  g.fillStyle='#f1f5f9';g.fillRect(-12,h/2-12,24,9);
-  g.fillStyle='#111';g.font='bold 6px monospace';g.textAlign='center';
-  if(name)g.fillText(name.slice(0,6).toUpperCase(),0,h/2-6);
-  // Sticker
-  if(sticker){
-    g.fillStyle='rgba(255,255,255,.9)';g.font=`bold ${Math.round(w*.55)}px sans-serif`;
-    g.textAlign='center';g.fillText(sticker,0,2);
-  }
+  g.fillRect(-w/2-4,-h/2+5,5,9);g.fillRect(w/2-1,-h/2+5,5,9);
+  g.fillRect(-w/2-4,h/2-14,5,9);g.fillRect(w/2-1,h/2-14,5,9);
+  // gun barrel (Hassan only)
+  if(isH){g.fillStyle='#555';g.fillRect(-2,-h/2-10,4,12);}
+  // sticker
+  if(car.sticker){g.fillStyle='rgba(255,255,255,.9)';g.font=`bold ${(w*.55)|0}px sans-serif`;g.textAlign='center';g.fillText(car.sticker,0,2);}
   g.restore();
-  // Name above (world space, not rotated)
-  if(name){
-    g.fillStyle='#fff';g.font='bold 13px sans-serif';g.textAlign='center';
-    g.fillText(name,x,y-h/2-10);g.textAlign='left';
-  }
+  // name label
+  g.fillStyle='#fff';g.font='bold 13px sans-serif';g.textAlign='center';
+  g.fillText(name,x,y-h/2-10);g.textAlign='left';
 }
 
 /* ─── DRAW WORLD ─────────────────────────────────────────────── */
@@ -263,8 +286,8 @@ function drawWorld(){
   // Ground
   g.fillStyle='#1c2e14';g.fillRect(-8000,-8000,18000,18000);
 
-  // Road edge (white border)
-  g.strokeStyle='#c8c8d8';g.lineWidth=ROAD_W*2+16;g.lineJoin='round';g.lineCap='round';
+  // Road edge
+  g.strokeStyle='#c8c8d8';g.lineWidth=ROAD_W*2+18;g.lineJoin='round';g.lineCap='round';
   g.beginPath();g.moveTo(WP[0].x,WP[0].y);
   for(let i=1;i<WP.length;i++)g.lineTo(WP[i].x,WP[i].y);
   g.stroke();
@@ -275,161 +298,131 @@ function drawWorld(){
   for(let i=1;i<WP.length;i++)g.lineTo(WP[i].x,WP[i].y);
   g.stroke();
 
-  // Road detail (subtle asphalt texture via lighter strip)
-  g.strokeStyle='#2e3248';g.lineWidth=ROAD_W*2-8;
+  // Lane inner
+  g.strokeStyle='#2e3348';g.lineWidth=ROAD_W*2-10;
   g.beginPath();g.moveTo(WP[0].x,WP[0].y);
   for(let i=1;i<WP.length;i++)g.lineTo(WP[i].x,WP[i].y);
   g.stroke();
 
-  // Yellow center dashes
-  g.strokeStyle='#d4a800';g.lineWidth=4;g.setLineDash([50,40]);
+  // Center dashes
+  g.strokeStyle='#d4a800';g.lineWidth=4;g.setLineDash([55,40]);
   g.beginPath();g.moveTo(WP[0].x,WP[0].y);
   for(let i=1;i<WP.length;i++)g.lineTo(WP[i].x,WP[i].y);
   g.stroke();g.setLineDash([]);
 
-  // Shoulder white lines (both sides, approximate using two offset passes)
-  // (simplified: just draw them as a slightly different stroke width diff)
-
-  // Exit ramp stubs + green signs
+  // Signs + markers
   for(let i=0;i<WP.length;i++){
-    const wp=WP[i];
-    if(!wp.exit&&i>0&&i<WP.length-1)continue;
-    // Sign board
-    const isFinish=i===WP.length-1;
-    g.fillStyle=isFinish?'#78350f':'#14532d';
-    g.fillRect(wp.x-70,wp.y-ROAD_W-60,140,38);
-    g.strokeStyle=isFinish?'#fbbf24':'#86efac';g.lineWidth=3;
-    g.strokeRect(wp.x-70,wp.y-ROAD_W-60,140,38);
-    g.fillStyle=isFinish?'#fde68a':'#dcfce7';
-    g.font=`bold 12px sans-serif`;g.textAlign='center';
-    g.fillText(wp.name.slice(0,18),wp.x,wp.y-ROAD_W-38);
-    g.textAlign='left';
-    // Finish line
-    if(isFinish){
-      g.strokeStyle='#fbbf24';g.lineWidth=10;
-      const ang=Math.atan2(WP[i].y-WP[i-1].y,WP[i].x-WP[i-1].x)+Math.PI/2;
+    const wp=WP[i],fin=i===WP.length-1,start=i===0;
+    if(!wp.exit&&!fin&&!start)continue;
+    // sign
+    g.fillStyle=fin?'#78350f':'#14532d';
+    g.fillRect(wp.x-75,wp.y-ROAD_W-68,150,40);
+    g.strokeStyle=fin?'#fbbf24':'#86efac';g.lineWidth=3;
+    g.strokeRect(wp.x-75,wp.y-ROAD_W-68,150,40);
+    g.fillStyle=fin?'#fde68a':'#dcfce7';g.font='bold 12px sans-serif';g.textAlign='center';
+    g.fillText(wp.name.slice(0,18),wp.x,wp.y-ROAD_W-43);g.textAlign='left';
+    // finish/start line
+    if(fin||start){
+      const ang=fin?Math.atan2(WP[i].y-WP[i-1].y,WP[i].x-WP[i-1].x)+Math.PI/2:Math.PI/2;
+      g.strokeStyle=fin?'#fbbf24':'#ffffff';g.lineWidth=10;
       g.beginPath();
       g.moveTo(wp.x+Math.cos(ang)*ROAD_W,wp.y+Math.sin(ang)*ROAD_W);
       g.lineTo(wp.x-Math.cos(ang)*ROAD_W,wp.y-Math.sin(ang)*ROAD_W);
       g.stroke();
     }
-    // Start line
-    if(i===0){
-      g.strokeStyle='#fff';g.lineWidth=8;
-      const ang2=Math.PI/2;
-      g.beginPath();
-      g.moveTo(wp.x+Math.cos(ang2)*ROAD_W,wp.y+Math.sin(ang2)*ROAD_W);
-      g.lineTo(wp.x-Math.cos(ang2)*ROAD_W,wp.y-Math.sin(ang2)*ROAD_W);
-      g.stroke();
-    }
   }
 
-  // Roadside buildings (401 corridor + 400 corridor)
+  // Buildings
   const bldgs=[
-    // 401 east section (south side = higher y)
-    [400,1520,65,60],[560,1540,50,80],[800,1510,75,55],[1050,1540,60,90],
-    [1250,1510,80,65],[1500,1530,55,70],[1750,1520,70,60],[2000,1540,60,80],
-    [2200,1510,75,65],[2500,1530,65,55],
-    // 401 east section (north side = lower y)
-    [350,1140,70,60],[550,1120,55,80],[780,1130,80,65],[1000,1110,65,70],
-    [1300,1125,70,55],[1600,1110,60,80],[1900,1130,75,60],[2300,1115,55,75],
-    // 400 north section (west side = lower x)
-    [3060,700,60,70],[3060,450,65,80],[3060,200,55,65],[3060,-50,70,60],
-    // 400 north section (east side = higher x)
-    [3400,680,65,70],[3400,430,60,80],[3400,180,70,55],[3400,-70,55,75],
+    [350,1570,65,60],[520,1590,50,80],[800,1560,75,55],[1050,1595,60,90],
+    [1250,1560,80,65],[1520,1580,55,70],[1800,1570,70,60],[2100,1590,60,80],
+    [2300,1565,75,65],[2600,1580,65,55],
+    [350,1130,70,60],[560,1110,55,80],[790,1120,80,65],[1060,1100,65,70],
+    [1360,1115,70,55],[1650,1100,60,80],[1960,1120,75,60],[2370,1105,55,75],
+    [3060,680,60,70],[3060,420,65,80],[3060,160,55,65],[3060,-120,70,60],
+    [3450,660,65,70],[3450,410,60,80],[3450,160,70,55],[3450,-140,55,75],
   ];
   for(const[bx,by,bw,bh]of bldgs){
     g.fillStyle='#1b2a1b';g.fillRect(bx,by,bw,bh);
-    g.fillStyle='#233023';g.fillRect(bx+3,by+3,bw-6,bh*.55);
-    g.fillStyle='rgba(255,220,80,.3)';
-    for(let wx=bx+6;wx<bx+bw-6;wx+=12){for(let wy=by+6;wy<by+bh*.5;wy+=14){if(Math.random()<.6)g.fillRect(wx,wy,6,8);}}
+    g.fillStyle='rgba(255,220,80,.28)';
+    for(let wx=bx+6;wx<bx+bw-6;wx+=12){for(let wy=by+6;wy<by+bh*.5;wy+=14){if(Math.random()<.55)g.fillRect(wx,wy,6,8);}}
   }
 
-  // Traffic cars (draw far ones first, closest last for z-order doesn't matter in top-down)
-  for(const t of traffic){
-    if(!t.active)continue;
-    drawCarShape(t.x,t.y,t.angle,t.color,'',t.sticker,t.w,t.h,false);
+  // Traffic + Scott + Hassan
+  for(const t of traffic)drawCar(t,false);
+  drawCar(scott,false);
+  drawCar(hassan,true);
+
+  // Bullets
+  for(const b of bullets){
+    g.fillStyle='#facc15';
+    g.beginPath();g.arc(b.x,b.y,5,0,Math.PI*2);g.fill();
+    g.fillStyle='rgba(251,191,36,.4)';
+    g.beginPath();g.arc(b.x,b.y,9,0,Math.PI*2);g.fill();
   }
 
-  // Scott
-  drawCarShape(scott.x,scott.y,scott.angle,'#3b82f6','Scott AI',null,scott.w,scott.h,false);
-
-  // Hassan (drawn last = on top)
-  drawCarShape(hassan.x,hassan.y,hassan.angle,'#22c55e','Hassan',null,hassan.w,hassan.h,true);
+  // Explosions
+  for(const e of explosions){
+    const a=e.life/e.maxLife;
+    g.fillStyle=`rgba(${e.color==='#fff'?'255,255,255':e.color==='#fbbf24'?'251,191,36':e.color==='#f97316'?'249,115,22':'239,68,68'},${a})`;
+    g.fillRect(e.x-3,e.y-3,6,6);
+  }
 }
 
-/* ─── DRAW SCREEN-SPACE ──────────────────────────────────────── */
+/* ─── DRAW HUD ───────────────────────────────────────────────── */
 function drawHUD(){
-  // Checkpoint flash banner
   if(cpFlash.alpha>0){
-    g.fillStyle=`rgba(10,30,80,${cpFlash.alpha*.85})`;
-    g.fillRect(W/2-220,H-90,440,38);
-    g.fillStyle=`rgba(180,230,255,${cpFlash.alpha})`;
-    g.font='bold 16px system-ui';g.textAlign='center';
-    g.fillText('► '+cpFlash.text,W/2,H-66);
-    g.textAlign='left';
+    g.fillStyle=`rgba(10,30,80,${cpFlash.alpha*.85})`;g.fillRect(W/2-220,H-85,440,36);
+    g.fillStyle=`rgba(180,230,255,${cpFlash.alpha})`;g.font='bold 15px system-ui';g.textAlign='center';
+    g.fillText('► '+cpFlash.text,W/2,H-63);g.textAlign='left';
   }
 
-  // Speedometer
-  const sx=W-105,sy=H-108,sr=46;
-  g.fillStyle='rgba(6,12,30,.8)';g.beginPath();g.arc(sx,sy,sr,0,Math.PI*2);g.fill();
-  g.strokeStyle='#3050aa';g.lineWidth=2;g.beginPath();g.arc(sx,sy,sr,0,Math.PI*2);g.stroke();
+  // Speedo
+  const sx=W-108,sy=H-110,sr=48;
+  g.fillStyle='rgba(5,10,26,.82)';g.beginPath();g.arc(sx,sy,sr,0,Math.PI*2);g.fill();
+  g.strokeStyle='#303f88';g.lineWidth=2;g.beginPath();g.arc(sx,sy,sr,0,Math.PI*2);g.stroke();
   const spd=clamp(hassan.speed/hassan.maxSpd,0,1);
   g.strokeStyle='#22c55e';g.lineWidth=5;g.beginPath();
-  g.arc(sx,sy,sr-7,Math.PI*.75,Math.PI*.75+spd*Math.PI*1.5);g.stroke();
+  g.arc(sx,sy,sr-8,Math.PI*.75,Math.PI*.75+spd*Math.PI*1.5);g.stroke();
   g.fillStyle='#fff';g.font='bold 14px system-ui';g.textAlign='center';
   g.fillText(Math.round(hassan.speed*28),sx,sy+5);
   g.font='9px system-ui';g.fillText('km/h',sx,sy+18);g.textAlign='left';
 
   // Minimap
-  const mx=12,my=12,mw=180,mh=90;
-  g.fillStyle='rgba(6,12,30,.82)';g.fillRect(mx,my,mw,mh);
+  const mx=12,my=12,mw=185,mh=95;
+  const wr={minX:100,maxX:3600,minY:-300,maxY:1600};
+  function tm(wx,wy){return{x:mx+6+(wx-wr.minX)/(wr.maxX-wr.minX)*(mw-12),y:my+6+(wy-wr.minY)/(wr.maxY-wr.minY)*(mh-12)};}
+  g.fillStyle='rgba(5,10,26,.84)';g.fillRect(mx,my,mw,mh);
   g.strokeStyle='#3050aa';g.strokeRect(mx,my,mw,mh);
-  // World bounds
-  const wr={minX:100,maxX:3400,minY:-200,maxY:1550};
-  function toMap(wx,wy){
-    return{x:mx+6+(wx-wr.minX)/(wr.maxX-wr.minX)*(mw-12),
-           y:my+6+(wy-wr.minY)/(wr.maxY-wr.minY)*(mh-12)};
-  }
-  // Draw route
   g.strokeStyle='#4a6aaa';g.lineWidth=4;g.beginPath();
-  let mp=toMap(WP[0].x,WP[0].y);g.moveTo(mp.x,mp.y);
-  for(let i=1;i<WP.length;i++){mp=toMap(WP[i].x,WP[i].y);g.lineTo(mp.x,mp.y);}
+  let mp=tm(WP[0].x,WP[0].y);g.moveTo(mp.x,mp.y);
+  for(let i=1;i<WP.length;i++){mp=tm(WP[i].x,WP[i].y);g.lineTo(mp.x,mp.y);}
   g.stroke();
-  // Finish dot
-  const fm=toMap(WP[WP.length-1].x,WP[WP.length-1].y);
+  const fm=tm(WP[WP.length-1].x,WP[WP.length-1].y);
   g.fillStyle='#fbbf24';g.beginPath();g.arc(fm.x,fm.y,4,0,Math.PI*2);g.fill();
-  // Hassan dot
-  const hm=toMap(hassan.x,hassan.y);
+  const hm=tm(hassan.x,hassan.y),sm=tm(scott.x,scott.y);
   g.fillStyle='#22c55e';g.beginPath();g.arc(hm.x,hm.y,5,0,Math.PI*2);g.fill();
-  // Scott dot
-  const sm=toMap(scott.x,scott.y);
   g.fillStyle='#3b82f6';g.beginPath();g.arc(sm.x,sm.y,4,0,Math.PI*2);g.fill();
-  // Labels
-  g.fillStyle='#94a3b8';g.font='8px sans-serif';
-  g.fillText('Mavis',mx+4,my+mh-2);g.fillText('Rutherford',mx+mw-60,my+mh-2);
+  g.fillStyle='#94a3b8';g.font='8px sans-serif';g.fillText('Mavis',mx+4,my+mh-2);
+  g.fillText('Rutherford',mx+mw-62,my+mh-2);
 }
 
-/* ─── DRAW OVERLAYS ──────────────────────────────────────────── */
+/* ─── OVERLAY ────────────────────────────────────────────────── */
 function drawOverlay(){
   if(started&&!ended)return;
-  g.fillStyle='rgba(0,0,0,.62)';g.fillRect(0,0,W,H);
+  g.fillStyle='rgba(0,0,0,.64)';g.fillRect(0,0,W,H);
   g.textAlign='center';
   if(!started){
-    g.fillStyle='#a5b8ff';g.font='bold 48px system-ui';g.fillText('401 DASH',W/2,210);
-    g.fillStyle='#64748b';g.font='18px system-ui';
-    g.fillText('Hassan (YOU) vs Scott AI — Real GTA West route',W/2,248);
-    g.fillText('Mavis/401  →  Hwy 410  →  400N  →  Rutherford',W/2,272);
-    g.fillStyle='#86efac';g.font='bold 17px system-ui';
-    g.fillText('Click or press Enter to start',W/2,316);
-  } else if(ended){
+    g.fillStyle='#a5b8ff';g.font='bold 48px system-ui';g.fillText('401 DASH',W/2,205);
+    g.fillStyle='#64748b';g.font='18px system-ui';g.fillText('Hassan (YOU) vs Scott AI — Real 401→400 GTA West',W/2,242);
+    g.fillText('Shoot traffic with SPACE · Avoid crashes · First to Rutherford wins',W/2,267);
+    g.fillStyle='#86efac';g.font='bold 17px system-ui';g.fillText('Click or Enter to start',W/2,308);
+  }else if(ended){
     const win=winner.includes('Hassan');
-    g.fillStyle=win?'#86efac':'#fca5a5';
-    g.font='bold 46px system-ui';g.fillText(winner+' WINS',W/2,250);
+    g.fillStyle=win?'#86efac':'#fca5a5';g.font='bold 46px system-ui';g.fillText(winner+' WINS',W/2,248);
     g.fillStyle='#cbd5e1';g.font='18px system-ui';
-    g.fillText(`Your time: ${(frame/60+hassan.pen).toFixed(1)}s (incl. ${hassan.pen.toFixed(1)}s penalties) · Scott: ${(frame/60).toFixed(1)}s`,W/2,286);
-    g.fillStyle='#facc15';g.font='bold 16px system-ui';
-    g.fillText('Press R to race again',W/2,320);
+    g.fillText(`Your time: ${(frame/60+hassan.pen).toFixed(1)}s (${hassan.pen.toFixed(1)}s penalties) · Scott: ${(frame/60).toFixed(1)}s`,W/2,283);
+    g.fillStyle='#facc15';g.font='bold 16px system-ui';g.fillText('R to race again',W/2,316);
   }
   g.textAlign='left';
 }
@@ -437,36 +430,27 @@ function drawOverlay(){
 /* ─── MAIN LOOP ──────────────────────────────────────────────── */
 function loop(){
   g.clearRect(0,0,W,H);
-
-  // Camera: follow Hassan, rotate so Hassan faces screen-up
-  const lookX=Math.cos(hassan.angle)*110, lookY=Math.sin(hassan.angle)*110;
-  g.save();
-  g.translate(W/2, H/2+30);
-  g.rotate(-(hassan.angle+Math.PI/2));
-  g.translate(-(hassan.x+lookX),-(hassan.y+lookY));
-  drawWorld();
-  g.restore();
-
-  drawHUD();
-  drawOverlay();
-  update();
+  const lx=Math.cos(hassan.angle)*120,ly=Math.sin(hassan.angle)*120;
+  g.save();g.translate(W/2,H/2+30);g.rotate(-(hassan.angle+Math.PI/2));
+  g.translate(-(hassan.x+lx),-(hassan.y+ly));
+  drawWorld();g.restore();
+  drawHUD();drawOverlay();update();
   requestAnimationFrame(loop);
 }
 
-/* ─── EVENTS ─────────────────────────────────────────────────── */
+/* ─── INPUT ──────────────────────────────────────────────────── */
 function startGame(){if(!started){initAC();started=true;}}
 addEventListener('keydown',e=>{
   keys[e.code]=true;
   if(e.code==='Enter')startGame();
   if(e.code==='KeyR')reset();
-  if(e.code==='KeyM'){muted=!muted;document.getElementById('hNext').textContent+=(muted?' 🔇':'');}
-  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();
+  if(e.code==='KeyM'){muted=!muted;}
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();
 });
 addEventListener('keyup',e=>keys[e.code]=false);
 C.addEventListener('click',startGame);
 
-reset();
-loop();
+reset();loop();
 </script>
 </body>
 </html>
