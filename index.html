@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hassan MTG</title>
+  <style>
+    body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0a0f1e;color:#e8e6f3;display:grid;place-items:center;min-height:100vh}
+    .wrap{width:min(96vw,920px)}
+    .ui{display:flex;justify-content:space-between;gap:12px;margin:0 0 8px;font-size:14px}
+    #game{width:100%;aspect-ratio:16/10;border:2px solid #7f5dac;background:linear-gradient(#a865ef,#422d86);box-shadow:0 10px 30px rgba(0,0,0,.4)}
+    .hint{opacity:.85;font-size:13px;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="ui">
+      <div id="status">Loading…</div>
+      <div id="cards">Cards: 0/5</div>
+    </div>
+    <canvas id="game" width="960" height="600"></canvas>
+    <div class="hint">Controls: ←/→ or A/D Move, ↑ or W or Space Jump, Shift Swap Hassan/Scott. Collect all Magic cards and reach the gate.</div>
+  </div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const cardsEl = document.getElementById('cards');
+const gravity = 0.65, keys = {}; let swapCooldown = 0;
+
+const level = {
+  platforms:[
+    {x:0,y:540,w:960,h:60},{x:130,y:450,w:160,h:20},{x:350,y:390,w:160,h:20},
+    {x:580,y:330,w:150,h:20},{x:780,y:260,w:130,h:20},{x:620,y:470,w:200,h:20}
+  ],
+  spikes:[{x:300,y:525,w:50,h:15},{x:520,y:525,w:50,h:15}],
+  cards:[
+    {x:180,y:410,name:'Plains Charm',color:'#fad072'},
+    {x:400,y:350,name:'Island Rune',color:'#7dd3fc'},
+    {x:630,y:290,name:'Mountain Blaze',color:'#fb7185'},
+    {x:820,y:220,name:'Forest Growth',color:'#86ef60'},
+    {x:710,y:430,name:'Swamp Oath',color:'#d4b5ff'}
+  ],
+  exit:{x:890,y:195,w:40,h:65}
+};
+
+const template = [
+  {name:'Hassan',color:'#22c55e',x:40,y:480,vx:0,vy:0,w:32,h:48,speed:4.2,jump:12.2},
+  {name:'Scott', color:'#f4973b',x:90,y:480,vx:0,vy:0,w:32,h:48,speed:4.8,jump:11.4}
+];
+let players = JSON.parse(JSON.stringify(template));
+let active = 0, collected = 0, won = false;
+
+const hit = (a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+
+function reset(spike=false){
+  players = JSON.parse(JSON.stringify(template)); active = 0; collected = 0; won = false;
+  level.cards.forEach(c=>c.got=false);
+  statusEl.textContent = spike ? 'Ouch. Spikes. Restarted level.' : 'Collect the cards. Reach the gate.';
+  cardsEl.textContent = `Cards: ${collected}/${level.cards.length}`;
+}
+
+function update(pl){
+  if(won) return;
+  pl.vx = 0; if(keys.ArrowLeft||keys.KeyA) pl.vx -= pl.speed; if(keys.ArrowRight||keys.KeyD) pl.vx += pl.speed;
+  pl.vy += gravity; pl.x += pl.vx;
+  for(const p of level.platforms){ if(hit(pl,p)){ if(pl.vx>0) pl.x=p.x-pl.w; if(pl.vx<0) pl.x=p.x+p.w; } }
+  pl.y += pl.vy; let onGround=false;
+  for(const p of level.platforms){
+    if(hit(pl,p)){
+      if(pl.vy>0){ pl.y=p.y-pl.h; pl.vy=0; onGround=true; }
+      else if(pl.vy<0){ pl.y=p.y+p.h; pl.vy=0; }
+    }
+  }
+  if(pl.x<0) pl.x=0; if(pl.x+pl.w>canvas.width) pl.x=canvas.width-pl.w;
+  if(pl.y>canvas.height+100) reset(true);
+  if((keys.ArrowUp||keys.KeyW||keys.Space) && onGround) pl.vy = -pl.jump;
+}
+
+function collect(pl){
+  for(const c of level.cards){
+    if(c.got) continue;
+    if(hit(pl,{x:c.x-12,y:c.y-16,w:24,h:32})){
+      c.got = true; collected++;
+      cardsEl.textContent = `Cards: ${collected}/${level.cards.length}`;
+      statusEl.textContent = `${pl.name} collected ${c.name}.`;
+    }
+  }
+}
+
+function hazards(pl){ for(const s of level.spikes){ if(hit(pl,s)) reset(true); } }
+
+function checkExit(pl){
+  if(collected !== level.cards.length) return;
+  if(hit(pl,level.exit)){ won = true; statusEl.textContent = `[VICTORY] ${pl.name} finished the level!`; }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const g = ctx.createLinearGradient(0,0,0,canvas.height); g.addColorStop(0,'#8660ee'); g.addColorStop(1,'#1f1445');
+  ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle='#2d2d44';
+  for(const p of level.platforms){ ctx.fillRect(p.x,p.y,p.w,p.h); ctx.fillStyle='#5e5e89'; ctx.fillRect(p.x,p.y,p.w,4); ctx.fillStyle='#2d2d44'; }
+
+  ctx.fillStyle='#ff6181';
+  for(const s of level.spikes){ ctx.beginPath(); ctx.moveTo(s.x,s.y+s.h); ctx.lineTo(s.x+s.w/2,s.y); ctx.lineTo(s.x+s.w,s.y+s.h); ctx.closePath(); ctx.fill(); }
+
+  for(const c of level.cards){
+    if(c.got) continue;
+    ctx.fillStyle=c.color; ctx.fillRect(c.x-12,c.y-16,24,32);
+    ctx.strokeStyle='#13131f'; ctx.strokeRect(c.x-12,c.y-16,24,32);
+    ctx.fillStyle='#13131f'; ctx.font='9px sans-serif'; ctx.fillText('MTG',c.x-9,c.y+4);
+  }
+
+  ctx.fillStyle = collected===level.cards.length ? '#4de5b6' : '#787daa';
+  ctx.fillRect(level.exit.x,level.exit.y,level.exit.w,level.exit.h);
+  ctx.fillStyle='#13131f'; ctx.font='12px sans-serif'; ctx.fillText('GATE',level.exit.x+4,level.exit.y+36);
+
+  players.forEach((pl,i)=>{
+    ctx.fillStyle=pl.color; ctx.fillRect(pl.x,pl.y,pl.w,pl.h);
+    ctx.strokeStyle=i===active?'#fff7cc':'#222'; ctx.lineWidth=i===active?3:1; ctx.strokeRect(pl.x,pl.y,pl.w,pl.h);
+    ctx.fillStyle='#eee'; ctx.font='12px sans-serif'; ctx.fillText(pl.name,pl.x,pl.y-8);
+  });
+
+  if(won){
+    ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='#fff'; ctx.font='40px system-ui'; ctx.fillText('You Win!',370,270);
+    ctx.font='18px system-ui'; ctx.fillText('Press R to restart',370,300);
+  }
+}
+
+function tick(){
+  if(swapCooldown>0) swapCooldown--;
+  const pl = players[active]; update(pl); collect(pl); hazards(pl); checkExit(pl); draw();
+  requestAnimationFrame(tick);
+}
+
+addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if((e.code==='ShiftLeft'||e.code==='ShiftRight')&&swapCooldown===0&&!won){
+    active=(active+1)%2; swapCooldown=12; statusEl.textContent=`Active: ${players[active].name}`;
+  }
+  if(e.code==='KeyR') reset();
+});
+addEventListener('keyup',e=>keys[e.code]=false);
+
+reset(); requestAnimationFrame(tick);
+</script>
+</body>
+</html>
