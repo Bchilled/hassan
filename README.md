@@ -1,27 +1,41 @@
-# Hassan MTG (v4)
+# 401 Dash — Hassan MTG
 
-A one-level HTML platformer starring Hassan (green) and Scott collecting MTG-style cards.
+A polished single-file browser racing game.
 
-## 🎮 Playable URL
-- **GitHub Pages:** <https://bchilled.github.io/hassan/>
-- **Repo:** <https://github.com/Bchilled/hassan>
-- **Local:** open `index.html` in a browser
+## 🎮 Play Now (GitHub Pages)
+<https://bchilled.github.io/hassan/>
 
-## v4 Improvements Implemented
-1. Better pixel-style character rendering (custom sprite-like drawing)
-2. Built-in sound effects (jump, coin, hit, victory)
-3. Boss fight phase after collecting all cards
-4. Boss HP bar and projectile attacks
-5. Card collection particles + feedback
-6. Stronger HUD and game state flow
-7. Maintained Hassan green + Scott orange identity
-8. Preserved one playable level with higher polish
-9. Better pause/start/win/lose overlays
-10. Updated docs with direct playable URL
+## 🗺️ Route
+**Mavis/401 → 401E → 400N → Rutherford Rd**
 
-## Controls
-- Move: `A/D` or `←/→`
-- Jump: `W` / `↑` / `Space` (double jump)
-- Swap Hassan/Scott: `Shift`
-- Pause: `P`
-- Restart: `R`
+Real GTA highway route with staged segments:
+1. 401 East — Mavis to Hurontario
+2. 401 East — Hurontario to 410
+3. 401/400 Transition
+4. 400 North — to Rutherford Rd exit
+
+## 🕹️ Controls
+- **A/D or ←/→** — lane change
+- **W/↑** — accelerate
+- **S/↓** — brake
+- **M** — mute/unmute
+- **R** — restart
+
+## Features
+- Hassan (you, green) vs Scott AI (blue)
+- Real exit signs (Hurontario, Dixie, 410, Mackenzie, Langstaff, Rutherford...)
+- 401→400 transition stage + speed reduction
+- Stage flash banners on segment transition
+- Punjabi stickers on 55% of traffic
+- Minimap showing full route + live car positions
+- Audio: engine, crash, checkpoint, win/lose
+- Collision = time penalty + distance setback
+- No build step. Open `index.html` in browser.
+
+## Run Locally
+```
+git clone https://github.com/Bchilled/hassan
+cd hassan
+start index.html   # Windows
+open index.html    # Mac
+```
