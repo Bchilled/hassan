@@ -3,150 +3,355 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hassan MTG</title>
+  <title>Hassan MTG — v4</title>
   <style>
-    body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0a0f1e;color:#e8e6f3;display:grid;place-items:center;min-height:100vh}
-    .wrap{width:min(96vw,920px)}
-    .ui{display:flex;justify-content:space-between;gap:12px;margin:0 0 8px;font-size:14px}
-    #game{width:100%;aspect-ratio:16/10;border:2px solid #7f5dac;background:linear-gradient(#a865ef,#422d86);box-shadow:0 10px 30px rgba(0,0,0,.4)}
-    .hint{opacity:.85;font-size:13px;margin-top:8px}
+    :root{--bg:#0a0f1f;--panel:#1a2244;--line:#5a6bc8;--text:#eef1ff;--muted:#aab3df}
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(circle at 20% 0,#33206f,#0a0f1f 50%);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;display:grid;place-items:center;min-height:100vh}
+    .wrap{width:min(96vw,1000px)}
+    .hud{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+    .left{font-weight:700}
+    .stats{display:flex;gap:8px;flex-wrap:wrap;font-size:14px}
+    .pill{background:#222d5e;border:1px solid #4455a8;border-radius:999px;padding:4px 10px}
+    canvas{width:100%;aspect-ratio:16/10;border-radius:10px;border:2px solid #6e7de0;background:#111735;box-shadow:0 14px 32px rgba(0,0,0,.45)}
+    .hint{font-size:13px;color:var(--muted);margin-top:8px}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="ui">
-      <div id="status">Loading…</div>
-      <div id="cards">Cards: 0/5</div>
+    <div class="hud">
+      <div class="left">Hassan MTG</div>
+      <div class="stats">
+        <span class="pill" id="active">Active: Hassan</span>
+        <span class="pill" id="cards">Cards: 0/7</span>
+        <span class="pill" id="hp">HP: 3</span>
+        <span class="pill" id="score">Score: 0</span>
+        <span class="pill" id="time">Time: 0.0s</span>
+      </div>
     </div>
     <canvas id="game" width="960" height="600"></canvas>
-    <div class="hint">Controls: ←/→ or A/D Move, ↑ or W or Space Jump, Shift Swap Hassan/Scott. Collect all Magic cards and reach the gate.</div>
+    <div class="hint">A/D or ←/→ move · W/↑/Space jump (double jump) · Shift swap · P pause · R restart · Defeat the boss after collecting all cards.</div>
   </div>
 
 <script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const statusEl = document.getElementById('status');
-const cardsEl = document.getElementById('cards');
-const gravity = 0.65, keys = {}; let swapCooldown = 0;
+const c = document.getElementById('game');
+const g = c.getContext('2d');
+const ui = {
+  active:document.getElementById('active'), cards:document.getElementById('cards'), hp:document.getElementById('hp'),
+  score:document.getElementById('score'), time:document.getElementById('time')
+};
+
+const keys = {};
+const gravity = 0.62;
+const friction = 0.86;
+let started=false, paused=false, won=false, dead=false;
+let t0=0, elapsed=0, score=0, swapCD=0, cardCount=0;
+let particles=[];
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function sfx(type='coin'){
+  try {
+    const o = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    o.connect(gain); gain.connect(audioCtx.destination);
+    const now = audioCtx.currentTime;
+    if(type==='coin'){o.type='triangle';o.frequency.setValueAtTime(660,now);o.frequency.exponentialRampToValueAtTime(1100,now+0.08);gain.gain.setValueAtTime(0.04,now);gain.gain.exponentialRampToValueAtTime(0.0001,now+0.11);o.start(now);o.stop(now+0.11)}
+    else if(type==='jump'){o.type='square';o.frequency.setValueAtTime(320,now);o.frequency.exponentialRampToValueAtTime(220,now+0.08);gain.gain.setValueAtTime(0.03,now);gain.gain.exponentialRampToValueAtTime(0.0001,now+0.09);o.start(now);o.stop(now+0.09)}
+    else if(type==='hit'){o.type='sawtooth';o.frequency.setValueAtTime(140,now);o.frequency.exponentialRampToValueAtTime(70,now+0.14);gain.gain.setValueAtTime(0.05,now);gain.gain.exponentialRampToValueAtTime(0.0001,now+0.15);o.start(now);o.stop(now+0.15)}
+    else if(type==='win'){o.type='triangle';o.frequency.setValueAtTime(600,now);o.frequency.exponentialRampToValueAtTime(1200,now+0.2);gain.gain.setValueAtTime(0.05,now);gain.gain.exponentialRampToValueAtTime(0.0001,now+0.25);o.start(now);o.stop(now+0.25)}
+  } catch {}
+}
 
 const level = {
   platforms:[
-    {x:0,y:540,w:960,h:60},{x:130,y:450,w:160,h:20},{x:350,y:390,w:160,h:20},
-    {x:580,y:330,w:150,h:20},{x:780,y:260,w:130,h:20},{x:620,y:470,w:200,h:20}
+    {x:0,y:540,w:960,h:60},{x:100,y:470,w:170,h:18},{x:310,y:410,w:145,h:18},
+    {x:500,y:355,w:185,h:18},{x:720,y:295,w:170,h:18},{x:620,y:470,w:220,h:18},{x:820,y:220,w:90,h:16}
   ],
-  spikes:[{x:300,y:525,w:50,h:15},{x:520,y:525,w:50,h:15}],
+  spikes:[{x:275,y:525,w:60,h:15},{x:460,y:525,w:70,h:15},{x:700,y:525,w:60,h:15}],
+  enemies:[{x:540,y:510,w:34,h:30,min:500,max:700,vx:1.3},{x:170,y:440,w:34,h:30,min:100,max:270,vx:1.1}],
   cards:[
-    {x:180,y:410,name:'Plains Charm',color:'#fad072'},
-    {x:400,y:350,name:'Island Rune',color:'#7dd3fc'},
-    {x:630,y:290,name:'Mountain Blaze',color:'#fb7185'},
-    {x:820,y:220,name:'Forest Growth',color:'#86ef60'},
-    {x:710,y:430,name:'Swamp Oath',color:'#d4b5ff'}
+    {x:135,y:430,rarity:'C',name:'Plains Sigil',color:'#f7d06a',score:100},
+    {x:360,y:370,rarity:'C',name:'Island Rune',color:'#7dd3fc',score:100},
+    {x:555,y:315,rarity:'R',name:'Mountain Burst',color:'#fb7185',score:200},
+    {x:765,y:255,rarity:'R',name:'Forest Pact',color:'#86ef60',score:200},
+    {x:855,y:185,rarity:'M',name:'Dragon Oath',color:'#fbbf24',score:500},
+    {x:670,y:430,rarity:'C',name:'Swamp Mark',color:'#d4b5ff',score:100},
+    {x:795,y:430,rarity:'R',name:'Arcane Tempo',color:'#5ee7b8',score:200}
   ],
-  exit:{x:890,y:195,w:40,h:65}
+  checkpoint:{x:614,y:430,w:12,h:40,active:false},
+  bossGate:{x:904,y:165,w:44,h:58}
 };
 
-const template = [
-  {name:'Hassan',color:'#22c55e',x:40,y:480,vx:0,vy:0,w:32,h:48,speed:4.2,jump:12.2},
-  {name:'Scott', color:'#f4973b',x:90,y:480,vx:0,vy:0,w:32,h:48,speed:4.8,jump:11.4}
+const basePlayers = [
+  {name:'Hassan',color:'#22c55e',x:40,y:480,w:32,h:48,vx:0,vy:0,speed:0.95,jump:11.8,jumps:2,maxJumps:2,hp:3},
+  {name:'Scott',color:'#f59e0b',x:86,y:480,w:32,h:48,vx:0,vy:0,speed:1.12,jump:11.4,jumps:2,maxJumps:2,hp:3,trait:'Captain Energy'}
 ];
-let players = JSON.parse(JSON.stringify(template));
-let active = 0, collected = 0, won = false;
+let players = JSON.parse(JSON.stringify(basePlayers));
+let active = 0;
 
-const hit = (a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+let boss = {active:false, phase:'idle', x:760, y:120, w:90, h:90, hp:8, dir:1, cool:0};
+let fireballs = [];
 
-function reset(spike=false){
-  players = JSON.parse(JSON.stringify(template)); active = 0; collected = 0; won = false;
+const overlap = (a,b)=>a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
+const act = ()=>players[active];
+
+function burst(x,y,color){for(let i=0;i<16;i++) particles.push({x,y,vx:(Math.random()-0.5)*4,vy:(Math.random()-1.1)*4,life:30,color});}
+
+function reset(full=true){
+  players = JSON.parse(JSON.stringify(basePlayers));
+  active=0; cardCount=0; score=0; swapCD=0;
   level.cards.forEach(c=>c.got=false);
-  statusEl.textContent = spike ? 'Ouch. Spikes. Restarted level.' : 'Collect the cards. Reach the gate.';
-  cardsEl.textContent = `Cards: ${collected}/${level.cards.length}`;
+  level.checkpoint.active=false;
+  boss={active:false,phase:'idle',x:760,y:120,w:90,h:90,hp:8,dir:1,cool:0};
+  fireballs=[]; particles=[];
+  if(full){started=false;paused=false;won=false;dead=false;elapsed=0;t0=performance.now();}
+  updateHUD();
 }
 
-function update(pl){
-  if(won) return;
-  pl.vx = 0; if(keys.ArrowLeft||keys.KeyA) pl.vx -= pl.speed; if(keys.ArrowRight||keys.KeyD) pl.vx += pl.speed;
-  pl.vy += gravity; pl.x += pl.vx;
-  for(const p of level.platforms){ if(hit(pl,p)){ if(pl.vx>0) pl.x=p.x-pl.w; if(pl.vx<0) pl.x=p.x+p.w; } }
-  pl.y += pl.vy; let onGround=false;
-  for(const p of level.platforms){
-    if(hit(pl,p)){
-      if(pl.vy>0){ pl.y=p.y-pl.h; pl.vy=0; onGround=true; }
-      else if(pl.vy<0){ pl.y=p.y+p.h; pl.vy=0; }
+function updateHUD(){
+  ui.active.textContent = `Active: ${act().name}`;
+  ui.cards.textContent = `Cards: ${cardCount}/${level.cards.length}`;
+  ui.hp.textContent = `HP: ${act().hp}`;
+  ui.score.textContent = `Score: ${score}`;
+}
+
+function hurt(pl){
+  if(dead||won) return;
+  pl.hp--; updateHUD(); sfx('hit'); burst(pl.x+pl.w/2,pl.y+pl.h/2,'#ff6d8b');
+  if(pl.hp<=0){dead=true; return;}
+  if(level.checkpoint.active){pl.x=level.checkpoint.x-10;pl.y=level.checkpoint.y-20;} else {pl.x=40;pl.y=480;}
+  pl.vx=0; pl.vy=0;
+}
+
+function jump(){
+  const p = act();
+  if(!started||paused||won||dead) return;
+  if(p.jumps>0){p.vy=-p.jump; p.jumps--; sfx('jump');}
+}
+
+function updatePlayer(p){
+  if(!started||paused||won||dead) return;
+  const left = keys.ArrowLeft || keys.KeyA;
+  const right = keys.ArrowRight || keys.KeyD;
+  if(left) p.vx -= p.speed;
+  if(right) p.vx += p.speed;
+  p.vx *= friction;
+
+  p.vy += gravity;
+  p.x += p.vx;
+  for(const pf of level.platforms){
+    if(overlap(p,pf)){ if(p.vx>0) p.x = pf.x-p.w; if(p.vx<0) p.x = pf.x+pf.w; p.vx=0; }
+  }
+
+  p.y += p.vy;
+  let grounded=false;
+  for(const pf of level.platforms){
+    if(overlap(p,pf)){
+      if(p.vy>0){p.y=pf.y-p.h; p.vy=0; grounded=true;}
+      else if(p.vy<0){p.y=pf.y+pf.h; p.vy=0;}
     }
   }
-  if(pl.x<0) pl.x=0; if(pl.x+pl.w>canvas.width) pl.x=canvas.width-pl.w;
-  if(pl.y>canvas.height+100) reset(true);
-  if((keys.ArrowUp||keys.KeyW||keys.Space) && onGround) pl.vy = -pl.jump;
+  if(grounded) p.jumps = p.maxJumps;
+
+  if(p.x<0) p.x=0;
+  if(p.x+p.w>c.width) p.x=c.width-p.w;
+  if(p.y>c.height+30) hurt(p);
 }
 
-function collect(pl){
-  for(const c of level.cards){
-    if(c.got) continue;
-    if(hit(pl,{x:c.x-12,y:c.y-16,w:24,h:32})){
-      c.got = true; collected++;
-      cardsEl.textContent = `Cards: ${collected}/${level.cards.length}`;
-      statusEl.textContent = `${pl.name} collected ${c.name}.`;
+function updateEnemiesAndHazards(p){
+  for(const s of level.spikes){ if(overlap(p,s)) hurt(p); }
+  for(const e of level.enemies){
+    e.x += e.vx;
+    if(e.x<e.min || e.x+e.w>e.max) e.vx*=-1;
+    if(overlap(p,e)) hurt(p);
+  }
+}
+
+function collectCards(p){
+  for(const cd of level.cards){
+    if(cd.got) continue;
+    if(overlap(p,{x:cd.x-12,y:cd.y-16,w:24,h:32})){
+      cd.got=true; cardCount++; score += cd.score; updateHUD(); burst(cd.x,cd.y,cd.color); sfx('coin');
     }
   }
 }
 
-function hazards(pl){ for(const s of level.spikes){ if(hit(pl,s)) reset(true); } }
+function updateCheckpoint(p){
+  if(!level.checkpoint.active && overlap(p,level.checkpoint)){
+    level.checkpoint.active=true; score+=150; updateHUD(); burst(level.checkpoint.x,level.checkpoint.y,'#5ee7b8');
+  }
+}
 
-function checkExit(pl){
-  if(collected !== level.cards.length) return;
-  if(hit(pl,level.exit)){ won = true; statusEl.textContent = `[VICTORY] ${pl.name} finished the level!`; }
+function updateBoss(p){
+  if(cardCount===level.cards.length && !boss.active){
+    boss.active=true; boss.phase='fight';
+  }
+  if(!boss.active || won || dead || paused || !started) return;
+
+  boss.x += boss.dir*1.2;
+  if(boss.x<650 || boss.x+boss.w>920) boss.dir*=-1;
+
+  boss.cool--;
+  if(boss.cool<=0){
+    fireballs.push({x:boss.x+boss.w/2,y:boss.y+boss.h-10,vx:(p.x-boss.x)*0.01,vy:2.6,r:8});
+    boss.cool = 60;
+  }
+
+  for(const fb of fireballs){ fb.x+=fb.vx; fb.y+=fb.vy; }
+  fireballs = fireballs.filter(fb=>fb.y<620 && fb.x>-20 && fb.x<980);
+
+  for(const fb of fireballs){
+    if(overlap(p,{x:fb.x-fb.r,y:fb.y-fb.r,w:fb.r*2,h:fb.r*2})) hurt(p);
+  }
+
+  const stompZone = {x:boss.x,y:boss.y,w:boss.w,h:boss.h};
+  if(overlap(p,stompZone)){
+    const fromTop = (p.y + p.h - p.vy) <= boss.y + 8 && p.vy > 0;
+    if(fromTop){
+      boss.hp--; p.vy = -8; score += 250; burst(boss.x+boss.w/2,boss.y+boss.h/2,'#fbbf24'); sfx('coin');
+      if(boss.hp<=0){ won=true; score+=1000; sfx('win'); }
+    } else {
+      hurt(p);
+    }
+  }
+}
+
+function drawPixelHero(x,y,w,h,body,outline,name){
+  g.fillStyle = body; g.fillRect(x,y,w,h);
+  g.fillStyle = '#f5d7b2'; g.fillRect(x+8,y+5,16,12);
+  g.fillStyle = '#1b1b1b'; g.fillRect(x+11,y+9,3,3); g.fillRect(x+18,y+9,3,3);
+  g.fillStyle = '#ffffff'; g.fillRect(x+11,y+10,1,1); g.fillRect(x+18,y+10,1,1);
+
+  // Character essence accents
+  if(name==='Hassan'){
+    // Green focus-band
+    g.fillStyle='#166534'; g.fillRect(x+6,y+3,20,3);
+  }
+  if(name==='Scott'){
+    // Captain vibe: tiny crown + shoulder cape
+    g.fillStyle='#facc15'; g.fillRect(x+11,y+1,10,3);
+    g.fillStyle='#f59e0b'; g.fillRect(x-3,y+14,4,18);
+  }
+
+  g.strokeStyle = outline; g.lineWidth=2; g.strokeRect(x,y,w,h);
+}
+
+function drawBoss(){
+  if(!boss.active) return;
+  g.fillStyle = '#5b21b6'; g.fillRect(boss.x,boss.y,boss.w,boss.h);
+  g.fillStyle = '#c4b5fd'; g.fillRect(boss.x+20,boss.y+22,12,12); g.fillRect(boss.x+56,boss.y+22,12,12);
+  g.fillStyle = '#2e1065'; g.fillRect(boss.x+34,boss.y+58,22,10);
+  g.strokeStyle = '#ede9fe'; g.lineWidth=3; g.strokeRect(boss.x,boss.y,boss.w,boss.h);
+  g.fillStyle='#111827'; g.fillRect(620,18,300,14);
+  g.fillStyle='#ef4444'; g.fillRect(622,20,(boss.hp/8)*296,10);
+  g.fillStyle='#fff'; g.font='12px system-ui'; g.fillText('Boss HP',622,14);
 }
 
 function draw(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  const g = ctx.createLinearGradient(0,0,0,canvas.height); g.addColorStop(0,'#8660ee'); g.addColorStop(1,'#1f1445');
-  ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const lg = g.createLinearGradient(0,0,0,c.height);
+  lg.addColorStop(0,'#4f46e5'); lg.addColorStop(1,'#1e113f');
+  g.fillStyle=lg; g.fillRect(0,0,c.width,c.height);
 
-  ctx.fillStyle='#2d2d44';
-  for(const p of level.platforms){ ctx.fillRect(p.x,p.y,p.w,p.h); ctx.fillStyle='#5e5e89'; ctx.fillRect(p.x,p.y,p.w,4); ctx.fillStyle='#2d2d44'; }
+  // stars
+  g.fillStyle='rgba(255,255,255,.25)';
+  for(let i=0;i<40;i++){g.fillRect((i*97)%960,(i*53)%260,2,2)}
 
-  ctx.fillStyle='#ff6181';
-  for(const s of level.spikes){ ctx.beginPath(); ctx.moveTo(s.x,s.y+s.h); ctx.lineTo(s.x+s.w/2,s.y); ctx.lineTo(s.x+s.w,s.y+s.h); ctx.closePath(); ctx.fill(); }
-
-  for(const c of level.cards){
-    if(c.got) continue;
-    ctx.fillStyle=c.color; ctx.fillRect(c.x-12,c.y-16,24,32);
-    ctx.strokeStyle='#13131f'; ctx.strokeRect(c.x-12,c.y-16,24,32);
-    ctx.fillStyle='#13131f'; ctx.font='9px sans-serif'; ctx.fillText('MTG',c.x-9,c.y+4);
+  for(const pf of level.platforms){
+    g.fillStyle='#2b3156'; g.fillRect(pf.x,pf.y,pf.w,pf.h);
+    g.fillStyle='#6675ba'; g.fillRect(pf.x,pf.y,pf.w,4);
   }
 
-  ctx.fillStyle = collected===level.cards.length ? '#4de5b6' : '#787daa';
-  ctx.fillRect(level.exit.x,level.exit.y,level.exit.w,level.exit.h);
-  ctx.fillStyle='#13131f'; ctx.font='12px sans-serif'; ctx.fillText('GATE',level.exit.x+4,level.exit.y+36);
+  for(const s of level.spikes){
+    g.fillStyle='#ff6d8b'; g.beginPath(); g.moveTo(s.x,s.y+s.h); g.lineTo(s.x+s.w/2,s.y); g.lineTo(s.x+s.w,s.y+s.h); g.fill();
+  }
 
-  players.forEach((pl,i)=>{
-    ctx.fillStyle=pl.color; ctx.fillRect(pl.x,pl.y,pl.w,pl.h);
-    ctx.strokeStyle=i===active?'#fff7cc':'#222'; ctx.lineWidth=i===active?3:1; ctx.strokeRect(pl.x,pl.y,pl.w,pl.h);
-    ctx.fillStyle='#eee'; ctx.font='12px sans-serif'; ctx.fillText(pl.name,pl.x,pl.y-8);
+  for(const e of level.enemies){
+    g.fillStyle='#7c3aed'; g.fillRect(e.x,e.y,e.w,e.h);
+    g.fillStyle='#ddd6fe'; g.fillRect(e.x+7,e.y+7,6,6); g.fillRect(e.x+21,e.y+7,6,6);
+    g.fillStyle='#3b0764'; g.fillRect(e.x+11,e.y+19,12,5);
+  }
+
+  for(const cd of level.cards){
+    if(cd.got) continue;
+    g.fillStyle=cd.color; g.fillRect(cd.x-12,cd.y-16,24,32);
+    g.strokeStyle='#0f172a'; g.strokeRect(cd.x-12,cd.y-16,24,32);
+    g.fillStyle='#0f172a'; g.font='10px monospace'; g.fillText(cd.rarity,cd.x-3,cd.y+4);
+  }
+
+  g.fillStyle = level.checkpoint.active ? '#5ee7b8' : '#8ea0ff';
+  g.fillRect(level.checkpoint.x,level.checkpoint.y,level.checkpoint.w,level.checkpoint.h);
+
+  g.fillStyle = (cardCount===level.cards.length) ? '#5ee7b8' : '#7f89bc';
+  g.fillRect(level.bossGate.x,level.bossGate.y,level.bossGate.w,level.bossGate.h);
+  g.fillStyle='#0f172a'; g.font='12px sans-serif'; g.fillText('BOSS',level.bossGate.x+5,level.bossGate.y+31);
+
+  players.forEach((p,i)=>{
+    drawPixelHero(p.x,p.y,p.w,p.h,p.color,i===active?'#fff7cc':'#1f2937',p.name);
+    g.fillStyle='#fff'; g.font='11px sans-serif'; g.fillText(p.name,p.x-2,p.y-8);
   });
 
-  if(won){
-    ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle='#fff'; ctx.font='40px system-ui'; ctx.fillText('You Win!',370,270);
-    ctx.font='18px system-ui'; ctx.fillText('Press R to restart',370,300);
+  drawBoss();
+
+  for(const fb of fireballs){
+    g.fillStyle='#fb7185'; g.beginPath(); g.arc(fb.x,fb.y,fb.r,0,Math.PI*2); g.fill();
+    g.strokeStyle='#fee2e2'; g.stroke();
+  }
+
+  particles = particles.filter(p=>p.life>0);
+  for(const p of particles){p.x+=p.vx; p.y+=p.vy; p.vy+=.12; p.life--; g.fillStyle=p.color; g.fillRect(p.x,p.y,3,3);}
+
+  if(!started || paused || won || dead){
+    g.fillStyle='rgba(0,0,0,.58)'; g.fillRect(0,0,c.width,c.height);
+    g.fillStyle='#fff'; g.textAlign='center';
+    if(!started){
+      g.font='42px system-ui'; g.fillText('Hassan MTG',c.width/2,220);
+      g.font='18px system-ui'; g.fillText('Collect 7 cards, then defeat the boss.',c.width/2,258);
+      g.fillText('Press Enter to Start',c.width/2,294);
+    } else if(paused){
+      g.font='40px system-ui'; g.fillText('Paused',c.width/2,270);
+      g.font='18px system-ui'; g.fillText('Press P to resume',c.width/2,304);
+    } else if(dead){
+      g.font='40px system-ui'; g.fillText('Defeat',c.width/2,258);
+      g.font='18px system-ui'; g.fillText('Press R to retry',c.width/2,292);
+    } else if(won){
+      g.font='40px system-ui'; g.fillText('Victory',c.width/2,248);
+      g.font='18px system-ui'; g.fillText(`Score: ${score} • Time: ${elapsed.toFixed(1)}s`,c.width/2,282);
+      g.fillText('Press R to replay',c.width/2,314);
+    }
+    g.textAlign='start';
   }
 }
 
-function tick(){
-  if(swapCooldown>0) swapCooldown--;
-  const pl = players[active]; update(pl); collect(pl); hazards(pl); checkExit(pl); draw();
+function tick(now){
+  if(started && !paused && !won && !dead) elapsed = (now - t0)/1000;
+  ui.time.textContent = `Time: ${elapsed.toFixed(1)}s`;
+
+  if(swapCD>0) swapCD--;
+  const p = act();
+  updatePlayer(p);
+  collectCards(p);
+  updateCheckpoint(p);
+  updateEnemiesAndHazards(p);
+  updateBoss(p);
+  updateHUD();
+  draw();
   requestAnimationFrame(tick);
 }
 
-addEventListener('keydown',e=>{
+addEventListener('keydown', e=>{
   keys[e.code]=true;
-  if((e.code==='ShiftLeft'||e.code==='ShiftRight')&&swapCooldown===0&&!won){
-    active=(active+1)%2; swapCooldown=12; statusEl.textContent=`Active: ${players[active].name}`;
-  }
-  if(e.code==='KeyR') reset();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  if(e.code==='Enter' && !started){started=true; t0=performance.now();}
+  if(e.code==='KeyP' && started && !won && !dead) paused=!paused;
+  if(e.code==='KeyR'){reset(true);} 
+  if((e.code==='ShiftLeft'||e.code==='ShiftRight') && swapCD===0 && started && !paused && !won && !dead){active=(active+1)%2; swapCD=12; updateHUD();}
+  if(['ArrowUp','KeyW','Space'].includes(e.code)) jump();
 });
-addEventListener('keyup',e=>keys[e.code]=false);
+addEventListener('keyup', e=> keys[e.code]=false);
 
-reset(); requestAnimationFrame(tick);
+reset(true);
+draw();
+requestAnimationFrame(tick);
 </script>
 </body>
 </html>
